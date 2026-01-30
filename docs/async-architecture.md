@@ -14,48 +14,27 @@ WAASP uses Celery for asynchronous task processing, enabling:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        ASYNC ARCHITECTURE                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-    ┌─────────────────┐
-    │   Flask API     │
-    │                 │
-    │  Synchronous    │
-    │  request/resp   │
-    └────────┬────────┘
-             │
-             │ task.delay()
-             │ (non-blocking)
-             ▼
-    ┌─────────────────┐
-    │   Redis         │
-    │   (Broker)      │
-    │                 │
-    │  Message Queue  │
-    │  Task Storage   │
-    └────────┬────────┘
-             │
-             │ consume
-             │
-    ┌────────┴────────┐
-    │   Celery        │
-    │   Worker(s)     │
-    │                 │
-    │  Execute tasks  │
-    │  asynchronously │
-    └────────┬────────┘
-             │
-             │ store result
-             ▼
-    ┌─────────────────┐
-    │   Redis         │
-    │   (Backend)     │
-    │                 │
-    │  Task Results   │
-    │  Task State     │
-    └─────────────────┘
+```mermaid
+flowchart TB
+    subgraph API["Flask API"]
+        A[Synchronous<br/>request/response]
+    end
+    
+    subgraph Broker["Redis (Broker)"]
+        B[Message Queue<br/>Task Storage]
+    end
+    
+    subgraph Workers["Celery Worker(s)"]
+        C[Execute tasks<br/>asynchronously]
+    end
+    
+    subgraph Backend["Redis (Backend)"]
+        D[Task Results<br/>Task State]
+    end
+    
+    A -->|"task.delay()<br/>(non-blocking)"| B
+    B -->|consume| C
+    C -->|store result| D
 ```
 
 ---
@@ -124,66 +103,37 @@ celery_app.conf.beat_schedule = {
 
 ### Blocked Sender Notification
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                    BLOCKED SENDER NOTIFICATION FLOW                        │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant Client as API Request
+    participant WS as WhitelistService
+    participant Celery as Celery Worker
 
-  API Request              WhitelistService                Celery
-      │                           │                           │
-      │  POST /check              │                           │
-      │  sender: unknown          │                           │
-      │──────────────────────────►│                           │
-      │                           │                           │
-      │                           │  check() → BLOCKED        │
-      │                           │                           │
-      │                           │  notify_blocked.delay()   │
-      │                           │──────────────────────────►│
-      │                           │     (async, non-blocking) │
-      │                           │                           │
-      │  {"allowed": false}       │                           │
-      │◄──────────────────────────│                           │
-      │  (response sent           │                           │
-      │   immediately)            │                           │
-      │                           │                           │
-                                                              │
-      ┌───────────────────────────────────────────────────────┘
-      │  (later, in worker)
-      ▼
-  ┌─────────────────────────────────────────────────────────┐
-  │  Worker executes notify_blocked_sender():               │
-  │                                                         │
-  │  • Log to audit system                                  │
-  │  • Send Slack notification                              │
-  │  • Update metrics                                       │
-  └─────────────────────────────────────────────────────────┘
+    Client->>WS: POST /check (sender: unknown)
+    WS->>WS: check() → BLOCKED
+    WS--)Celery: notify_blocked.delay()<br/>(async, non-blocking)
+    WS-->>Client: {"allowed": false}<br/>(response sent immediately)
+    
+    Note over Celery: Later, in worker...
+    Celery->>Celery: Execute notify_blocked_sender()
+    Note right of Celery: • Log to audit system<br/>• Send Slack notification<br/>• Update metrics
 ```
 
 ### Audit Log Cleanup
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                      SCHEDULED CLEANUP FLOW                                │
-└────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant Beat as Celery Beat
+    participant Redis
+    participant Worker
 
-  Celery Beat                  Redis                    Worker
-      │                          │                         │
-      │  [3:00 AM daily]         │                         │
-      │                          │                         │
-      │  Enqueue cleanup task    │                         │
-      │─────────────────────────►│                         │
-      │                          │                         │
-      │                          │  Task in queue          │
-      │                          │────────────────────────►│
-      │                          │                         │
-      │                          │                         │  Execute:
-      │                          │                         │  DELETE FROM audit_logs
-      │                          │                         │  WHERE created_at < (now - 90d)
-      │                          │                         │
-      │                          │  Store result           │
-      │                          │◄────────────────────────│
-      │                          │  {"deleted": 1523}      │
-      │                          │                         │
+    Note over Beat: 3:00 AM daily
+    Beat->>Redis: Enqueue cleanup task
+    Redis->>Worker: Task in queue
+    
+    Note over Worker: Execute:<br/>DELETE FROM audit_logs<br/>WHERE created_at < (now - 90d)
+    
+    Worker->>Redis: Store result<br/>{"deleted": 1523}
 ```
 
 ---
@@ -295,26 +245,16 @@ Access at http://localhost:5555
 
 ### Task States
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           TASK STATE MACHINE                                │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                              ┌─────────┐
-                              │ PENDING │
-                              └────┬────┘
-                                   │
-                              ┌────┴────┐
-                              │ STARTED │
-                              └────┬────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    │              │              │
-               ┌────┴────┐   ┌────┴────┐   ┌────┴────┐
-               │ SUCCESS │   │ FAILURE │   │ RETRY   │
-               └─────────┘   └─────────┘   └────┬────┘
-                                                │
-                                           (back to PENDING)
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> STARTED
+    STARTED --> SUCCESS
+    STARTED --> FAILURE
+    STARTED --> RETRY
+    RETRY --> PENDING: back to queue
+    SUCCESS --> [*]
+    FAILURE --> [*]
 ```
 
 ### Structured Logging
@@ -388,24 +328,13 @@ def task_with_dlq(self, data: dict):
 
 ### Horizontal Scaling
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SCALED WORKER DEPLOYMENT                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                           ┌─────────────────┐
-                           │     Redis       │
-                           │  (Task Queue)   │
-                           └────────┬────────┘
-                                    │
-          ┌─────────────────────────┼─────────────────────────┐
-          │                         │                         │
-          ▼                         ▼                         ▼
-   ┌─────────────┐           ┌─────────────┐           ┌─────────────┐
-   │  Worker 1   │           │  Worker 2   │           │  Worker 3   │
-   │             │           │             │           │             │
-   │  4 threads  │           │  4 threads  │           │  4 threads  │
-   └─────────────┘           └─────────────┘           └─────────────┘
+```mermaid
+flowchart TB
+    Redis[(Redis<br/>Task Queue)]
+    
+    Redis --> W1[Worker 1<br/>4 threads]
+    Redis --> W2[Worker 2<br/>4 threads]
+    Redis --> W3[Worker 3<br/>4 threads]
 ```
 
 ### Queue Prioritization

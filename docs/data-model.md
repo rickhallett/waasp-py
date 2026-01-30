@@ -4,47 +4,37 @@
 
 ## Entity Relationship Diagram
 
+```mermaid
+erDiagram
+    CONTACT {
+        int id PK
+        varchar sender_id "NOT NULL"
+        varchar channel "nullable"
+        varchar name "nullable"
+        enum trust_level "NOT NULL"
+        text notes "nullable"
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    AUDIT_LOG {
+        int id PK
+        int contact_id FK "nullable"
+        enum action "NOT NULL"
+        varchar sender_id "NOT NULL"
+        varchar channel "nullable"
+        varchar message_preview "nullable, max 500"
+        text metadata_json "nullable"
+        varchar decision_reason "nullable"
+        timestamp created_at
+    }
+    
+    CONTACT ||--o{ AUDIT_LOG : "has many"
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ENTITY RELATIONSHIPS                              │
-└─────────────────────────────────────────────────────────────────────────────┘
 
-    ┌───────────────────────────────────┐
-    │            CONTACT                │
-    ├───────────────────────────────────┤
-    │ PK  id            INTEGER         │
-    │     sender_id     VARCHAR(255)    │◄──────┐
-    │     channel       VARCHAR(50)     │       │
-    │     name          VARCHAR(255)    │       │
-    │     trust_level   ENUM            │       │ FK (nullable)
-    │     notes         TEXT            │       │
-    │     created_at    TIMESTAMP       │       │
-    │     updated_at    TIMESTAMP       │       │
-    ├───────────────────────────────────┤       │
-    │ IDX (sender_id, channel) UNIQUE   │       │
-    │ IDX (sender_id)                   │       │
-    │ IDX (channel)                     │       │
-    └───────────────────────────────────┘       │
-                                                │
-                                                │
-    ┌───────────────────────────────────┐       │
-    │           AUDIT_LOG               │       │
-    ├───────────────────────────────────┤       │
-    │ PK  id            INTEGER         │       │
-    │ FK  contact_id    INTEGER ────────┼───────┘
-    │     action        ENUM            │
-    │     sender_id     VARCHAR(255)    │
-    │     channel       VARCHAR(50)     │
-    │     message_prev  VARCHAR(500)    │
-    │     metadata_json TEXT            │
-    │     decision_rsn  VARCHAR(255)    │
-    │     created_at    TIMESTAMP       │
-    ├───────────────────────────────────┤
-    │ IDX (sender_id, created_at)       │
-    │ IDX (action, created_at)          │
-    │ IDX (contact_id)                  │
-    └───────────────────────────────────┘
-```
+**Indexes:**
+- `CONTACT`: `(sender_id, channel) UNIQUE`, `(sender_id)`, `(channel)`
+- `AUDIT_LOG`: `(sender_id, created_at)`, `(action, created_at)`, `(contact_id)`
 
 ---
 
@@ -102,25 +92,30 @@ The composite unique constraint on `(sender_id, channel)` enables:
 1. **Global contacts** (channel = NULL): Apply to all channels
 2. **Channel-specific contacts**: Override global for specific channel
 
+```mermaid
+flowchart LR
+    subgraph Contacts["Contacts Table"]
+        C1["sender: +447375862225<br/>channel: NULL<br/>trust: trusted"]
+        C2["sender: +447375862225<br/>channel: telegram<br/>trust: sovereign"]
+        C3["sender: +447375862225<br/>channel: email<br/>trust: blocked"]
+    end
+    
+    subgraph Lookups["Lookup Results"]
+        L1["check(whatsapp) → trusted"]
+        L2["check(telegram) → sovereign"]
+        L3["check(email) → blocked"]
+    end
+    
+    C1 -.->|"global default"| L1
+    C2 -->|"channel override"| L2
+    C3 -->|"channel override"| L3
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        CONTACT SCOPING EXAMPLE                              │
-└─────────────────────────────────────────────────────────────────────────────┘
 
-  Contacts table:
-  ┌─────────────────────┬───────────┬────────────┐
-  │ sender_id           │ channel   │ trust      │
-  ├─────────────────────┼───────────┼────────────┤
-  │ +447375862225       │ NULL      │ trusted    │  ← Global default
-  │ +447375862225       │ telegram  │ sovereign  │  ← Channel override
-  │ +447375862225       │ email     │ blocked    │  ← Channel override
-  └─────────────────────┴───────────┴────────────┘
-
-  Lookup results:
-  • check(+447375862225, whatsapp) → trusted   (global)
-  • check(+447375862225, telegram) → sovereign (override)
-  • check(+447375862225, email)    → blocked   (override)
-```
+| sender_id | channel | trust | note |
+|-----------|---------|-------|------|
+| +447375862225 | NULL | trusted | Global default |
+| +447375862225 | telegram | sovereign | Channel override |
+| +447375862225 | email | blocked | Channel override |
 
 ---
 
@@ -204,21 +199,22 @@ The `contact_id` FK uses `ON DELETE SET NULL` because:
 
 ### Index Design Rationale
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         INDEX SELECTION                                     │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-  Query: Find contact for sender_id + channel
-  
-  Option A: Separate indexes (sender_id) + (channel)
-    → Requires index merge or table scan
-    → Slower for combined lookups
-  
-  Option B: Composite index (sender_id, channel) ✓
-    → Single index seek
-    → Covers the unique constraint
-    → Optimal for the most frequent query
+```mermaid
+flowchart TB
+    Q["Query: Find contact for sender_id + channel"]
+    
+    Q --> A["Option A: Separate indexes<br/>(sender_id) + (channel)"]
+    Q --> B["Option B: Composite index<br/>(sender_id, channel) ✓"]
+    
+    A --> A1["❌ Requires index merge or table scan"]
+    A --> A2["❌ Slower for combined lookups"]
+    
+    B --> B1["✅ Single index seek"]
+    B --> B2["✅ Covers the unique constraint"]
+    B --> B3["✅ Optimal for most frequent query"]
+    
+    style B fill:#d4edda
+    style A fill:#f8d7da
 ```
 
 ---

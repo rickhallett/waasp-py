@@ -19,7 +19,7 @@ all: help
 
 $(VENV)/bin/activate:
 	uv venv $(VENV)
-	$(BIN)/pip install -e ".[dev]"
+	uv pip install -e ".[dev]"
 
 install: $(VENV)/bin/activate ## Install dependencies
 	@echo "$(GREEN)✓ Dependencies installed$(NC)"

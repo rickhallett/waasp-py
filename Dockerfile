@@ -23,8 +23,9 @@ FROM base AS builder
 # Install uv for fast package management
 RUN pip install uv
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Copy dependency files and source (needed for editable install)
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 
 # Create virtual environment and install dependencies
 RUN uv venv /opt/venv

@@ -97,34 +97,14 @@ Check sender with full context.
 ```
 
 **Flow:**
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          POST /check FLOW                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
 
-  Request                          Response
-     │                                │
-     │  {sender_id, channel, ...}     │
-     │                                │
-     ▼                                │
-  ┌──────────────────┐                │
-  │ Pydantic         │                │
-  │ Validation       │                │
-  └────────┬─────────┘                │
-           │                          │
-           │ Valid                    │ Invalid → 400 Bad Request
-           ▼                          │
-  ┌──────────────────┐                │
-  │ WhitelistService │                │
-  │ .check()         │                │
-  └────────┬─────────┘                │
-           │                          │
-           ▼                          │
-  ┌──────────────────┐                │
-  │ CheckResult      │────────────────┘
-  │ → CheckResponse  │
-  │   200 OK         │
-  └──────────────────┘
+```mermaid
+flowchart TB
+    A[Request<br/>sender_id, channel, ...] --> B{Pydantic<br/>Validation}
+    B -->|Invalid| C[400 Bad Request]
+    B -->|Valid| D[WhitelistService<br/>.check]
+    D --> E[CheckResult<br/>→ CheckResponse]
+    E --> F[200 OK]
 ```
 
 #### GET /api/v1/check/{sender_id}
