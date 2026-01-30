@@ -128,6 +128,17 @@ make check
 - **Linting:** ruff + mypy
 - **Containerization:** Docker + Docker Compose
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design overview and component breakdown |
+| [docs/data-model.md](docs/data-model.md) | Database schema, indexing strategy, migrations |
+| [docs/security-model.md](docs/security-model.md) | Trust levels, threat model, authentication |
+| [docs/api-design.md](docs/api-design.md) | RESTful API design and endpoint reference |
+| [docs/async-architecture.md](docs/async-architecture.md) | Celery tasks, event-driven patterns |
+| [docs/deployment.md](docs/deployment.md) | AWS deployment guide with Terraform |
+
 ## License
 
 MIT
