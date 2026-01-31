@@ -290,7 +290,7 @@ class WhitelistService:
         Returns:
             List of matching contacts
         """
-        query = Contact.query
+        query = db.session.query(Contact)
         
         if trust_level:
             query = query.filter(Contact.trust_level == trust_level)
@@ -314,7 +314,7 @@ class WhitelistService:
         """
         # Try channel-specific first
         if channel:
-            contact = Contact.query.filter_by(
+            contact = db.session.query(Contact).filter_by(
                 sender_id=sender_id,
                 channel=channel,
             ).first()
@@ -322,7 +322,7 @@ class WhitelistService:
                 return contact
 
         # Fall back to global (channel=None)
-        return Contact.query.filter_by(
+        return db.session.query(Contact).filter_by(
             sender_id=sender_id,
             channel=None,
         ).first()

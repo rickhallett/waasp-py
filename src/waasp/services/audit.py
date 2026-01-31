@@ -135,7 +135,7 @@ class AuditService:
         Returns:
             List of matching AuditLog entries
         """
-        query = AuditLog.query
+        query = db.session.query(AuditLog)
         
         if sender_id:
             query = query.filter(AuditLog.sender_id == sender_id)
@@ -160,7 +160,7 @@ class AuditService:
         """
         from sqlalchemy import func
         
-        total = AuditLog.query.count()
+        total = db.session.query(AuditLog).count()
         
         by_action = (
             db.session.query(AuditLog.action, func.count(AuditLog.id))
