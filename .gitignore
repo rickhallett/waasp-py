@@ -57,3 +57,6 @@ Thumbs.db
 waasp.db
 celerybeat-schedule
 celerybeat.pid
+
+# Task artifacts
+tasks/
